@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <title>atcoder-hokudai-hitachi-2017-2 - chart</title>
+    <script type="text/javascript" src="https://www.google.com/jsapi"></script>
+    <script type="text/javascript" src="./plotly-latest.min.js"></script>
+    <script>
+google.load(
+  "visualization",
+  "1",
+  {
+    'packages': ['table', 'corechart'],
+    'callback' : function(){
+      loadSheet();
+    }
+  }
+);
+
+let scoreData = {};
+
+function loadSheet(){
+  const sheetUrl = 'https://docs.google.com/spreadsheets/d/1F0N0GTYcpWX3sZEm0k7XDNtv6ycXxRAph90xP44Dik8/';
+  let query = new google.visualization.Query( sheetUrl + "gviz/tq?range=Data!A:B");
+  query.setQuery("select *");
+  query.send( function(res){
+    data = res.getDataTable();
+    console.log(data.toJSON());
+    parseData(data);
+  });
+}
+
+function parseData(dataTable){
+  const rows = dataTable.getNumberOfRows();
+  for(let r=1; r<rows; r++){
+    userName = dataTable.getValue(r, 0);
+    data = dataTable.getValue(r, 1);
+    scoreData[userName] = JSON.parse(data);
+  }
+
+  // scoreData = {userName: {score:time, score:time, ... }}
+  drawChart();
+  makeStandingsTable()
+}
+
+function makeStandingsTable(){
+  let standings = new google.visualization.DataTable({
+    cols:[
+      {id:'rank', label:'Rank', type:'number'},
+      {id:'name', label:'Name', type:'string'},
+      {id:'score', label:'Score', type:'number'},
+      {id:'score', label:'Time [D-HH:MM]', type:'string'},
+    ],
+  });
+
+  let rows =  Object.keys(scoreData).map( userName => {
+    let obj = scoreData[userName];
+    let d = Object.keys(obj).reduce( (best, score)=>{
+      let elapsed = Number( obj[score] ) / 1000000000;
+      let min = Math.floor(elapsed / 60);
+      let hour = Math.floor(min / 60);
+      min %= 24;
+      let day = Math.floor(hour / 24);
+      hour %= 24;
+
+      let tmp = {
+        time: `0${day}-`.slice(-3) + `0${hour}:`.slice(-3) + `0${min}`.slice(-2),
+        score: Number(score)
+      };
+      if( best.score < tmp.score ){
+        return tmp;
+      }else{
+        return best;
+      }
+    }, {time:-1, score:-1} );
+    return [0, userName, d.score, d.time ];
+  });
+
+  rows.sort( (a,b)=>{return a[2] > b[2] ? -1 : 1;} );
+  for(let i=0; i<rows.length; i++){
+    rows[i][0] = i+1;
+    if( i>0 && rows[i][2] == rows[i-1][2] ) rows[i][0] = rows[i-1][0];
+  }
+
+  console.log( rows );
+  standings.addRows( rows );
+
+  let view = new google.visualization.DataView(standings);
+  let table = new google.visualization.Table(
+    document.getElementById("standings") );
+  table.draw(view);
+}
+
+function drawChart(){
+  const numUsers = Object.keys(scoreData).length;
+  let data = [];
+
+  let rank = [];
+  let timePoint = {};
+  let maxTime = 0;
+  Object.keys(scoreData).forEach( function(userName){
+    let obj = scoreData[userName];
+    let maxScore = 0;
+    Object.keys(obj).forEach( function(score){
+      let elapsed = Number(obj[score]) / 1000000000;
+      const sec = elapsed % 60;
+      const min = Math.floor(elapsed / 60);
+      maxTime = Math.max(maxTime, min);
+      maxScore = Math.max(maxScore, Number(score));
+      // const hour = Math.ceil(min/60);
+      const hour = Math.ceil(min/60);
+      timePoint[hour] = true;
+    });
+    rank.push( [maxScore, userName] );
+  });
+  maxTime += 100;
+
+  rank.sort( (a,b)=>a[0]>b[0]?-1:1 );
+  timePoint = Object.keys(timePoint).map( t=>Number(t) ).sort( (a,b)=>a<b?-1:1 );
+  timePointKey = {};
+  timePoint.forEach( (t,idx)=>{timePointKey[t] = idx;} );
+
+  // scoreTable
+  // +---------------------------
+  // | time | user1 | user2 | ...
+  // +------+-------+-------+----
+  // |time1 |score1 |score1 | ...
+  //
+  let scoreTable = new Array( timePoint );
+  for(let i=0; i<timePoint.length; i++){
+    scoreTable[i] = new Array( numUsers + 1 );
+    scoreTable[i].fill(0);
+    scoreTable[i][0] = timePoint[i];
+  }
+
+  rank.forEach( function(user, idx){
+    const userName = user[1];
+    let tmp = [];
+    let obj = scoreData[userName];
+    Object.keys(obj).forEach( function(score){
+      let elapsed = Number(obj[score]) / 1000000000;
+      const sec = elapsed % 60;
+      const min = Math.floor(elapsed / 60);
+      // const hour = Math.ceil(min/60);
+      const hour = Math.ceil(min/60);
+      let row = timePointKey[hour];
+      scoreTable[row][idx+1] = Number(score)/100;
+    } );
+    for(let i=1; i<scoreTable.length; i++){
+      scoreTable[i][idx+1] = Math.max(scoreTable[i][idx+1], scoreTable[i-1][idx+1]);
+    }
+  });
+
+
+  // rankTable
+  // +---------------------------
+  // | time | user1 | user2 | ...
+  // +------+-------+-------+----
+  // |time1 | rank1 | rank1 | ...
+  //
+  let rankTable = new Array( timePoint );
+  for(let i=0; i<timePoint.length; i++){
+    rankTable[i] = new Array( numUsers + 1 );
+    rankTable[i].fill(0);
+    rankTable[i][0] = timePoint[i];
+  }
+  for(let i=0; i<rankTable.length; i++){
+    const arr = scoreTable[i].slice(1).map( (s,i)=>[s,i] ).sort( (a,b)=>a[0]>b[0]?-1:1 );
+    arr.forEach( (e,r)=>{
+      rankTable[i][e[1]+1] = r+1;
+      if( r>0 && arr[r-1][0] == e[0] ){
+        rankTable[i][e[1]+1] = rankTable[i][arr[r-1][1]+1];
+      }
+    } );
+  }
+
+  drawRankChartPlotly(rank, rankTable);
+  drawScoreChartPlotly(rank, scoreTable);
+  document.getElementById("unko").textContent = "";
+}
+
+function drawRankChartPlotly(currentRank, rankTable){
+  let traces = [];
+  let x = rankTable.map( e=>e[0] );
+  for(let i=1; i<rankTable[0].length; i++){
+    traces.push({
+      x: x,
+      y: rankTable.map( e=>e[i] ),
+      mode: 'lines',
+      type: 'scatter',
+      name: currentRank[i-1][1],
+      opacity: 0.5,
+      visible: i<=20 ? true : "legendonly",
+    });
+  }
+
+  let layout = {
+    xaxis: {
+      title : 'Elapsed Time [hour]',
+    },
+    yaxis: {
+      title : 'Rank',
+      autorange: 'reversed',
+    },
+  };
+  Plotly.plot( document.getElementById("rankChart"), {
+    data:traces,
+    layout:layout,
+  } );
+}
+
+
+
+function drawScoreChartPlotly(currentRank, scoreTable){
+  let traces = [];
+  let x = scoreTable.map( e=>e[0] );
+  const maxScore = scoreTable[scoreTable.length-1][1];
+  for(let i=1; i<scoreTable[0].length; i++){
+    traces.push({
+      x: x,
+      y: scoreTable.map( e=>e[i] ),
+      mode: 'lines',
+      type: 'scatter',
+      name: currentRank[i-1][1],
+      opacity: 0.5,
+      visible: i<=20 ? true : "legendonly",
+    });
+  }
+
+  let layout = {
+    xaxis: {
+      title : 'Elapsed Time [hour]',
+    },
+    yaxis: {
+      title : 'Score',
+    },
+  };
+  Plotly.plot( document.getElementById("scoreChart"), {
+    data:traces,
+    layout:layout,
+  } );
+}
+
+    </script>
+  </head>
+  <body>
+    <a href="https://beta.atcoder.jp/contests/hokudai-hitachi2017-2/standings">Standings</a>
+    <p id="unko">loading...</p>
+    <div id="standings"></div>
+    <div id="rankChart" style="width:100%; height:600px"></div>
+    <div id="scoreChart" style="width:100%; height:600px"></div>
+  </body>
+</html>
