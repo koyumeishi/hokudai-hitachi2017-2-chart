@@ -65,7 +65,7 @@ function makeStandingsTable(){
 
       let tmp = {
         time: `0${day}-`.slice(-3) + `0${hour}:`.slice(-3) + `0${min}`.slice(-2),
-        score: Number(score)
+        score: Number(score)/100
       };
       if( best.score < tmp.score ){
         return tmp;
